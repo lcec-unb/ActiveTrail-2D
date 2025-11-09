@@ -8,12 +8,12 @@ CSV_TRAJ   = "trajectories.csv"
 CSV_TRACES = "traces.csv"
 
 # Domínio (ajuste se necessário)
-xmin = 0.0; xmax = 10.0
-ymin = 0.0; ymax = 10.0
+xmin = 0.0; xmax = 50.0
+ymin = 0.0; ymax = 50.0
 
 # Parâmetros de tempo (ajuste se mudou no código)
 dt         = 0.01
-out_stride = 10
+out_stride = 5
 t_step     = dt * out_stride
 t_eps      = 1e-12
 t_win      = t_step/2.0   # janela temporal para filtrar linhas
@@ -56,7 +56,7 @@ do for [f=0:frames-1] {
     # filtra linhas com t em [T - t_win, T + t_win)
     plot CSV_TRAJ u ( ($1>=T-t_win && $1<T+t_win) ? $3 : 1/0 ) : \
                     ( ($1>=T-t_win && $1<T+t_win) ? $4 : 1/0 ) \
-         w p pt 7 ps 0.4 lc rgb "black"
+         w p pt 6 ps 0.7 lc rgb "black"
 }
 unset output
 

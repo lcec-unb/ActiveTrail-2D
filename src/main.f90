@@ -19,27 +19,57 @@ program active_trail2d
   real              :: p,q,time
   logical           :: magpart
 
-  !===============================
-  ! Parâmetros da simulação
-  !===============================
-  n   = 50
-  m   = 50
-  Nl  = n*m
-  Nf  = 10000
-  xmin= 0.0
-  ymin= 0.0
-  xmax= 10.0
-  ymax= 10.0
-  dt  = 0.01
-  mass= 0.1
-  friction = 0.1
-  p   = 0.6     ! prob. de evaporação do rastro
-  q   = 0.8     ! prob. de permanecer quando NÃO há rastro (se houver rastro, prob. é maior que q)
-  time= 10.0
-  npast = int(time/dt)
-  out_stride = 5        ! grava a cada 10 passos (ajuste livre)
-  magpart = .false.
+  ! ===== Novos para EM + Repulsão =====
+  integer, allocatable :: head(:,:), next(:), cell_of(:)
+  real,    allocatable :: FX(:), FY(:)     ! força determinística (repulsão) por partícula
+  real :: d0, k_rep                         ! raio efetivo e constante de repulsão
+  real :: sigma                             ! intensidade do ruído (EM): aceleração estocástica
 
+  character(42) texto
+  !===============================
+  ! Parâmetros da simulação 
+  ! Lidos do config.dat
+  !===============================
+
+505   FORMAT(1X,A40,1X,E11.4E2)
+507   FORMAT(1X,A40,1X,I6)
+508   FORMAT(1X,A40,L10)
+
+open(3,file='config.dat')
+      READ (3,'(A)') texto
+      READ (3,'(A)') texto
+      READ (3,'(A)') texto
+      READ (3,'(A)') texto
+      READ (3,'(A)') texto
+      READ (3,'(A)') texto
+      READ (3,'(A)') texto
+      READ (3,'(A)') texto
+      READ (3,508) texto,magpart
+      READ(3,507) texto,Nf
+      READ(3,507) texto,n
+      READ(3,507) texto,m
+      READ(3,505) texto,xmin
+      READ(3,505) texto,xmax
+      READ(3,505) texto,ymin
+      READ(3,505) texto,ymax      
+      READ(3,505) texto,dt
+      READ(3,505) texto,time
+      READ(3,507) texto,out_stride
+      READ (3,'(A)') texto
+      READ (3,'(A)') texto
+      READ (3,'(A)') texto
+      READ(3,505) texto,mass
+      READ(3,505) texto,friction
+      READ(3,505) texto,d0
+      READ(3,505) texto,k_rep
+      READ(3,505) texto,sigma
+      READ (3,'(A)') texto
+      READ (3,'(A)') texto
+      READ (3,'(A)') texto  
+      READ(3,505) texto,p
+      READ(3,505) texto,q     
+  
+  npast = int(time/dt)
   dx  = (xmax - xmin)/real(n-1)
   dy  = (ymax - ymin)/real(m-1)
 
@@ -57,9 +87,15 @@ program active_trail2d
 
   allocate(RAND1(Nf))
   allocate(RAND2(Nf))
-  allocate(FORCA1(Nf))
-  allocate(FORCA2(Nf))
+  allocate(FORCA1(Nf));      FORCA1 = 0.0
+  allocate(FORCA2(Nf));      FORCA2 = 0.0
   allocate(FICA(Nf))
+
+  allocate(head(n,m));       head = 0
+  allocate(next(Nf));        next = 0
+  allocate(cell_of(Nf));     cell_of = 0
+  allocate(FX(Nf));          FX = 0.0
+  allocate(FY(Nf));          FY = 0.0
 
   call banner()
 
@@ -99,16 +135,25 @@ program active_trail2d
   do k=1,npast
     write(*,*) 'Current time-step', k
 
-    ! Forças aleatórias (ruído) por partícula
-    call randomica(-dx, dx, FORCA1, Nf, 1000 + 2*k)
-    call randomica(-dy, dy, FORCA2, Nf, 1000 + 2*k + 1)
+    ! --------- RUÍDO GAUSSIANO (EM): aceleração estocástica ---------
+    call randn_gauss(Nf, sigma*sqrt(dt), FORCA1)  ! ax ~ N(0, sigma^2) * sqrt(dt)
+    call randn_gauss(Nf, sigma*sqrt(dt), FORCA2)  ! ay ~ N(0, sigma^2) * sqrt(dt)
 
-    ! Integra velocidades e posições
+    ! --------- FORÇA DETERMINÍSTICA DE REPULSÃO (curto alcance) -----
+    head = 0; next = 0; cell_of = 0
+    call build_cell_lists(n,m,xmin,ymin,dx,dy,Nf,X1,X2, head,next, cell_of)
+    FX = 0.0; FY = 0.0
+    call compute_repulsion(n,m,dx,dy, Nf, X1,X2, head,next, d0, k_rep, FX,FY)
+
+    ! --------- INTEGRADOR EULER–MARUYAMA ----------------------------
     do i=1,Nf
-      call resvel(V1(i), dt, FORCA1(i), friction, mass)  ! x
-      call resvel(V2(i), dt, FORCA2(i), friction, mass)  ! y
-      call respos(X1(i), dt, V1(i))                      ! x
-      call respos(X2(i), dt, V2(i))                      ! y
+      ! dV = [ (F_rep - friction*V)/mass ]*dt + sigma*sqrt(dt)*N(0,1)
+      V1(i) = V1(i) + ( (FX(i) - friction*V1(i))/mass )*dt + FORCA1(i)
+      V2(i) = V2(i) + ( (FY(i) - friction*V2(i))/mass )*dt + FORCA2(i)
+
+      ! X_{n+1} = X_n + V_{n+1}*dt
+      X1(i) = X1(i) + V1(i)*dt
+      X2(i) = X2(i) + V2(i)*dt
 
       ! Condição de contorno reflexiva simples
       if (X1(i) <= xmin) X1(i) = xmin + 0.1*dx
@@ -117,17 +162,16 @@ program active_trail2d
       if (X2(i) >= ymax) X2(i) = ymax - 0.1*dy
     end do
 
-    ! Reconstroi ocupação de células (zera e marca)
+    ! --------- Reconstroi ocupação de células (zera e marca) ---------
     S = 0.0
     SAUX = 0
     call rebuild_cell_occupancy_unique(n,m,xmin,ymin,dx,dy, &
                                        Nf,X1,X2,FORCA1,FORCA2,S,SAUX)
 
-    ! Decisão de ficar/sair quando NÃO há rastro (usa prob. q)
+    ! --------- Regras ORIGINAIS de decisão/evaporação (inalteradas) --
     call randomica(0.0, 1.0, FICA, Nf, 222222)
     call apply_stay_or_kick(n,m,dx,dy,q,S,SAUX,F,FICA,FORCA1,FORCA2,X1,X2)
 
-    ! Deixa/evapora rastro
     call update_traces(n,m,p,S,F,EVAP, 333333 + k)
 
     ! Saída (amostrada por stride)
@@ -154,7 +198,7 @@ contains
   subroutine banner()
     implicit none
     write(*,*) '==============================================================='
-    write(*,*) '* ActiveTrail-2D  |  v0.1 (higienização básica)               *'
+    write(*,*) '* ActiveTrail-2D  |  v0.1 + (EM noise + short-range repulsion) *'
     write(*,*) '==============================================================='
   end subroutine banner
 
@@ -180,8 +224,7 @@ contains
 
   subroutine rebuild_cell_occupancy_unique(n,m,xmin,ymin,dx,dy, &
                                            Nf,X1,X2,FORCA1,FORCA2,S,SAUX)
-    ! Sem varredura da grade: mapeia cada partícula e aplica "empurrão"
-    ! leve se a célula já estiver ocupada — mantém 1 partícula por célula.
+    ! Mantida do v0.1: “empurrão” leve para evitar mais de 1 por célula
     implicit none
     integer, intent(in) :: n,m,Nf
     real,    intent(in) :: xmin,ymin,dx,dy
@@ -205,7 +248,6 @@ contains
           SAUX(idx) = i
           exit
         else
-          ! célula ocupada → empurra levemente e tenta de novo (máx 5 vezes)
           X1(i) = X1(i) + 0.05*FORCA1(i)
           X2(i) = X2(i) + 0.05*FORCA2(i)
           if (X1(i) <= xmin) X1(i) = xmin + 0.1*dx
@@ -214,7 +256,6 @@ contains
           if (X2(i) >= ymax) X2(i) = ymax - 0.1*dy
           tries = tries + 1
           if (tries >= 5) then
-            ! desiste do empurrão, registra mesmo assim para não travar
             S(ix,iy) = S(ix,iy) + 1.0
             SAUX(idx) = i
             exit
@@ -233,7 +274,6 @@ contains
     real,    intent(in) :: FICA(:), FORCA1(:), FORCA2(:)
     real,    intent(inout) :: X1(:), X2(:)
     integer :: l,j, idx, pid
-    ! Se célula ocupada e NÃO há rastro, partícula fica com prob. q; senão “chute” leve
     do l=1,n
       do j=1,m
         if (S(l,j) == 1.0) then
@@ -296,15 +336,15 @@ contains
   end subroutine seed_traces
 
   !===============================
-  ! Integradores (RK4, mantidos)
+  ! Integradores (RK4, mantidos — não usados no EM)
   !===============================
   subroutine resvel(a,b,c,d,e)
     implicit none
-    real, intent(inout) :: a          ! velocidade
-    real, intent(in)    :: b          ! dt
-    real, intent(in)    :: c          ! força (ruído)
-    real, intent(in)    :: d          ! atrito
-    real, intent(in)    :: e          ! massa
+    real, intent(inout) :: a
+    real, intent(in)    :: b
+    real, intent(in)    :: c
+    real, intent(in)    :: d
+    real, intent(in)    :: e
     real :: k1,k2,k3,k4
     k1 = b*(c-d*a)/e
     k2 = b*(c-d*(a+(0.5*k1)))/e
@@ -315,9 +355,9 @@ contains
 
   subroutine respos(a,b,c)
     implicit none
-    real, intent(inout) :: a      ! posição
-    real, intent(in)    :: b      ! dt
-    real, intent(in)    :: c      ! velocidade
+    real, intent(inout) :: a
+    real, intent(in)    :: b
+    real, intent(in)    :: c
     real :: k1,k2,k3,k4
     k1 = b*(c)
     k2 = b*((0.5*k1)+c)
@@ -354,7 +394,6 @@ contains
       seeded = .true.
     end if
 
-    ! Não reseeda: apenas consome alguns números extra se quiser variar sequência
     do i=1, max(0, mod(d,17))
       call random_number(c(1:1))
     end do
@@ -362,5 +401,93 @@ contains
     call random_number(c)
     c = a + (b-a)*c
   end subroutine randomica
+
+  !===============================
+  ! GAUSSIANO (Box–Muller) p/ EM
+  !===============================
+  subroutine randn_gauss(N, scale, G)
+    implicit none
+    integer, intent(in) :: N
+    real,    intent(in) :: scale
+    real,    intent(out):: G(N)
+    real, allocatable :: U1(:), U2(:)
+    integer :: i, M
+    M = (N+1)/2
+    allocate(U1(M), U2(M))
+    call randomica(1.0e-6, 1.0-1.0e-6, U1, M, 901)
+    call randomica(1.0e-6, 1.0-1.0e-6, U2, M, 902)
+    do i=1,M
+      G(2*i-1) = scale * sqrt(-2.0*log(U1(i))) * cos(2.0*3.141592653589793*U2(i))
+      if (2*i <= N) then
+        G(2*i)   = scale * sqrt(-2.0*log(U1(i))) * sin(2.0*3.141592653589793*U2(i))
+      end if
+    end do
+    deallocate(U1,U2)
+  end subroutine randn_gauss
+
+  !===============================
+  ! Cell-lists e Repulsão curta
+  !===============================
+  subroutine build_cell_lists(n,m,xmin,ymin,dx,dy,Nf,X1,X2, head,next, cell_of)
+    implicit none
+    integer, intent(in) :: n,m,Nf
+    real,    intent(in) :: xmin,ymin,dx,dy
+    real,    intent(in) :: X1(:), X2(:)
+    integer, intent(inout) :: head(n,m), next(:), cell_of(:)
+    integer :: i, ix, iy
+    do i=1,Nf
+      ix = 1 + int( floor( (X1(i)-xmin)/dx ) )
+      iy = 1 + int( floor( (X2(i)-ymin)/dy ) )
+      if (ix < 1) ix = 1; if (ix > n) ix = n
+      if (iy < 1) iy = 1; if (iy > m) iy = m
+      next(i)     = head(ix,iy)
+      head(ix,iy) = i
+      cell_of(i)  = (ix-1)*m + iy
+    end do
+  end subroutine build_cell_lists
+
+  subroutine compute_repulsion(n,m,dx,dy, Nf, X1,X2, head,next, d0,k_rep, FX,FY)
+    implicit none
+    integer, intent(in) :: n,m,Nf
+    real,    intent(in) :: dx,dy, d0, k_rep
+    real,    intent(in) :: X1(:), X2(:)
+    integer, intent(in) :: head(n,m), next(:)
+    real,    intent(inout) :: FX(:), FY(:)
+
+    integer :: ix,iy, i, j, cix, ciy
+    real :: rx, ry, r, overlap, invr
+
+    do ix=1,n
+      do iy=1,m
+        i = head(ix,iy)
+        do while (i /= 0)
+          do cix=max(1,ix-1), min(n,ix+1)
+            do ciy=max(1,iy-1), min(m,iy+1)
+              j = head(cix,ciy)
+              do while (j /= 0)
+                if (j > i) then
+                  rx = X1(i) - X1(j)
+                  ry = X2(i) - X2(j)
+                  r  = sqrt(rx*rx + ry*ry)
+                  if (r > 1.0e-12) then
+                    if (r < d0) then
+                      overlap = d0 - r
+                      invr = 1.0/r
+                      FX(i) = FX(i) + k_rep*overlap*(rx*invr)
+                      FY(i) = FY(i) + k_rep*overlap*(ry*invr)
+                      FX(j) = FX(j) - k_rep*overlap*(rx*invr)
+                      FY(j) = FY(j) - k_rep*overlap*(ry*invr)
+                    end if
+                  end if
+                end if
+                j = next(j)
+              end do
+            end do
+          end do
+          i = next(i)
+        end do
+      end do
+    end do
+  end subroutine compute_repulsion
 
 end program active_trail2d

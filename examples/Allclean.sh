@@ -1,2 +1,2 @@
-rm *.out
+rm *.gif
 rm *.csv

@@ -1,0 +1,32 @@
+***********************************************
+*                                             *
+*     ActiveTrail2D: CONFIGURATION FILE       *
+*                                             *
+***********************************************
+
+- GENERAL NUMERICAL DATA
+
+ MAGNETIC PARTICLES.....................: FALSE
+ NUMBER OF PARTICLES....................: 05000
+ NUMBER OF CELLS IN X DIRECTION.........: 00050
+ NUMBER OF CELLS IN Y DIRECTION.........: 00050
+ XMIN...................................: 0.0000E+00 
+ XMAX...................................: 5.0000E+01 
+ YMIN...................................: 0.0000E+00 
+ YMAX...................................: 5.0000E+01 
+ NUMERICAL TIME-STEP....................: 1.0000E-02 
+ SIMULATION TIME........................: 1.0000E+01
+ STEP TO STORAGE DATA...................: 00005
+      
+- PHYSICAL MODEL DATA
+
+ MASS COEFFICIENT.......................: 1.0000E-01
+ FRICTION COEFFICIENT...................: 1.0000E-01
+ SHORT-RANGE REPULSION EFF. DIAMETER....: 2.0000E-01
+ SHORT-RANGE REPULSION STIFFNES.........: 5.0000E+01
+ GAUSSIAN NOISE INTENSITY...............: 4.0000E-01
+     
+- SEARCH ALGORITHM DATA
+
+ PROBABILITY OF TRACE EVAPORATION.......: 6.0000E-01
+ PROBABILITY OF STAY IN TRACELESS CELLS.: 8.0000E-01
